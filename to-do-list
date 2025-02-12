@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-do-list</title>
+    <!-- 引用图标文件 -->//favicon.ico是在根目录下的图标文件，后面代表着格式
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <style>
+        /* 原有的样式代码 */
+       .completed{
+            text-decoration: line-through;
+            opacity: 0.4;
+        }
+        .del{
+            color: red;
+            cursor: pointer;
+        }
+        .item{
+           display: flex;
+           align-items: center;
+           justify-content: space-between;
+           box-sizing: border-box;
+           width: 80%;
+           height: 100px;
+           margin: 8px auto;
+           padding: 16px;
+           border-radius: 20px; 
+           box-shadow: rgba(149,157,165,0.2) 0px 8px 20px;
+        }
+        .todo-button{
+            width: 100px;
+            height: 52px;
+            border-radius: 0 20px 20px 0;
+            text-align: center;
+            line-height: 52px;
+            background: linear-gradient(to right, rgb(113,65,168), rgba(44,114,251,1));
+            cursor:pointer;
+            user-select:none;
+            color: #ffff;
+        }
+        .todo-input{
+            margin-bottom: 10px;
+            padding-left: 15px;
+            border: 1px solid #dfe1e5;
+            outline:none;
+            width: 60%;
+            height: 50px;
+            border-radius: 20px 0 0 20px;
+        }
+        .todo-form{
+            display: flex;
+            margin-top: 20px;
+            margin-left: 30px;
+        }
+        body{
+            background: linear-gradient(to right, rgb(113,65,168), rgba(44,114,251,1));
+        }
+        .todo-app{
+            width: 98%;
+            padding: 38px 0;
+            box-sizing: border-box;
+            background-color: #ffff;
+            border-radius: 5px;
+            margin: 40px 1%;
+        }
+        .title{
+            font-size: 38px;
+            font-weight: 700;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="todo-app">
+        <div class="title">to-do-list</div>
+        <div class="todo-form">
+            <input class="todo-input" type="text" id="todoInput" placeholder="add todo" onkeydown="checkEnter(event)"/>
+            <div class="todo-button" onclick="addTodo()">add todo</div>
+        </div>
+        <div id="incompleteTasks"></div>
+        <div id="completedTasks"></div>
+    </div>
+
+    <script>
+        // 原有的 JavaScript 代码
+        // 加载本地存储的任务
+        function loadTasks() {
+            const incompleteTasks = JSON.parse(localStorage.getItem('incompleteTasks')) || [];
+            const completedTasks = JSON.parse(localStorage.getItem('completedTasks')) || [];
+
+            // 渲染未完成任务
+            incompleteTasks.forEach(task => renderTask(task, false));
+
+            // 渲染已完成任务
+            completedTasks.forEach(task => renderTask(task, true));
+        }
+
+        // 渲染任务
+        function renderTask(task, isCompleted) {
+            const todoItem = document.createElement("div");
+            todoItem.classList.add("item");
+
+            const todoContent = document.createElement("div");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = isCompleted;
+            const taskName = document.createElement("span");
+            taskName.classList.add("name");
+            taskName.textContent = task.name;
+
+            todoContent.appendChild(checkbox);
+            todoContent.appendChild(taskName);
+
+            const deleteButton = document.createElement("div");
+            deleteButton.classList.add("del");
+            deleteButton.textContent = "delete";
+            deleteButton.onclick = function () {
+                deleteTask(task, isCompleted);
+            };
+
+            todoItem.appendChild(todoContent);
+            todoItem.appendChild(deleteButton);
+
+            // 如果任务已完成，添加completed类并添加到已完成任务区
+            if (isCompleted) {
+                todoItem.classList.add("completed");
+                document.getElementById("completedTasks").appendChild(todoItem);
+            } else {
+                document.getElementById("incompleteTasks").appendChild(todoItem);
+            }
+
+            // 勾选或点击"done"时调用相应的函数
+            checkbox.addEventListener("change", function () {
+                if (checkbox.checked) {
+                    moveTask(task, todoItem, 'incompleteTasks', 'completedTasks');
+                } else {
+                    moveTask(task, todoItem, 'completedTasks', 'incompleteTasks');
+                }
+            });
+        }
+
+        // 添加任务
+        function addTodo() {
+            const input = document.getElementById("todoInput");
+            const todoText = input.value.trim();
+
+            if (todoText === "") return;
+
+            const task = { name: todoText };
+
+            // 渲染并添加任务
+            renderTask(task, false);
+
+            // 将任务存储到localStorage
+            const incompleteTasks = JSON.parse(localStorage.getItem('incompleteTasks')) || [];
+            incompleteTasks.push(task);
+            localStorage.setItem('incompleteTasks', JSON.stringify(incompleteTasks));
+
+            input.value = "";
+        }
+
+        // 移动任务
+        function moveTask(task, todoItem, fromList, toList) {
+            // 删除原列表中的任务
+            const fromTasks = JSON.parse(localStorage.getItem(fromList)) || [];
+            const updatedFromTasks = fromTasks.filter(t => t.name !== task.name);
+            localStorage.setItem(fromList, JSON.stringify(updatedFromTasks));
+
+            // 添加到目标列表
+            const toTasks = JSON.parse(localStorage.getItem(toList)) || [];
+            toTasks.push(task);
+            localStorage.setItem(toList, JSON.stringify(toTasks));
+
+            // 更新样式和DOM
+            if (toList === 'completedTasks') {
+                todoItem.classList.add("completed");
+            } else {
+                todoItem.classList.remove("completed");
+            }
+            document.getElementById(toList).appendChild(todoItem);
+        }
+
+        // 删除任务
+        function deleteTask(task, isCompleted) {
+            const taskList = isCompleted ? 'completedTasks' : 'incompleteTasks';
+            const tasks = JSON.parse(localStorage.getItem(taskList)) || [];
+            const updatedTasks = tasks.filter(t => t.name !== task.name);
+            localStorage.setItem(taskList, JSON.stringify(updatedTasks));
+
+            // 删除任务元素
+            const todoItem = document.querySelector(`.item:has(span:contains("${task.name}"))`);
+            if (todoItem) {
+                todoItem.remove();
+            }
+        }
+
+        // 检查按下的是Enter键
+        function checkEnter(event) {
+            if (event.key === "Enter") {
+                addTodo();
+            }
+        }
+
+        // 页面加载时执行
+        loadTasks();
+    </script>
+</body>
+</html>
