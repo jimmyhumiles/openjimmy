@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>To-do-list</title>
-    <!-- 引用图标文件 -->//favicon.ico是在根目录下的图标文件，后面代表着格式
+    <!-- 引用图标文件 favicon.ico是在根目录下的图标文件，后面代表着格式-->
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <style>
         /* 原有的样式代码 */
