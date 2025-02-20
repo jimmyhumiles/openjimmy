@@ -1,0 +1,265 @@
+import ctypes
+import tkinter as tk
+from tkinter import ttk
+import subprocess
+import requests
+import json
+from datetime import datetime
+
+try:
+    # 尝试设置高 DPI 感知
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except AttributeError:
+    try:
+        # 旧版本 Windows 的替代方法
+        ctypes.windll.user32.SetProcessDPIAware()
+    except AttributeError:
+        pass
+
+# 定义颜色
+BG_COLOR = "#2E2E2E"
+FG_COLOR = "#FFFFFF"
+# 新的输入框、按钮背景色，与主背景色差距更小
+INPUT_BG_COLOR = "#3A3A3A"
+# 滚动条颜色，比输入框颜色深一点
+SCROLLBAR_BG_COLOR = "#303030"
+SCROLLBAR_SLIDER_COLOR = "#404040"
+BUTTON_BG_COLOR = "#3A3A3A"
+BUTTON_HOVER_BG_COLOR = "#444444"
+
+# 创建圆角边框的 Canvas
+def create_rounded_canvas(parent, width, height, radius, bg_color):
+    canvas = tk.Canvas(parent, width=width, height=height, bg=bg_color, highlightthickness=0)
+    canvas.create_arc(0, 0, 2 * radius, 2 * radius, start=90, extent=90, fill=bg_color, outline=bg_color)
+    canvas.create_arc(width - 2 * radius, 0, width, 2 * radius, start=0, extent=90, fill=bg_color, outline=bg_color)
+    canvas.create_arc(0, height - 2 * radius, 2 * radius, height, start=180, extent=90, fill=bg_color, outline=bg_color)
+    canvas.create_arc(width - 2 * radius, height - 2 * radius, width, height, start=270, extent=90, fill=bg_color, outline=bg_color)
+    canvas.create_rectangle(radius, 0, width - radius, height, fill=bg_color, outline=bg_color)
+    canvas.create_rectangle(0, radius, width, height - radius, fill=bg_color, outline=bg_color)
+    return canvas
+
+# 创建文本框和滚动条部分的通用函数
+def create_text_widgets(frame, submit_callback):
+    # 创建输入框和发送按钮
+    input_canvas = create_rounded_canvas(frame, 600, 100, 10, INPUT_BG_COLOR)
+    input_canvas.pack(pady=10)
+
+    input_textbox = tk.Text(input_canvas, width=50, height=5, bg=INPUT_BG_COLOR, fg=FG_COLOR, insertbackground=FG_COLOR, bd=0)
+    input_textbox.place(relx=0, rely=0, relwidth=0.95, relheight=1)
+
+    input_scrollbar = ttk.Scrollbar(input_canvas, command=input_textbox.yview, style="Custom.Vertical.TScrollbar")
+    input_scrollbar.place(relx=0.95, rely=0, relwidth=0.05, relheight=1)
+    input_textbox.config(yscrollcommand=input_scrollbar.set)
+
+    input_textbox.bind("<Return>", lambda event: submit_callback())
+
+    button_canvas = create_rounded_canvas(frame, 100, 30, 10, BUTTON_BG_COLOR)
+    button_canvas.pack(pady=5)
+    button = tk.Button(button_canvas, text="发送", command=submit_callback, bg=BUTTON_BG_COLOR, fg=FG_COLOR, bd=0, font=("Arial", 10))
+    button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+    # 创建滚动文本框用于显示输出
+    output_canvas = create_rounded_canvas(frame, 600, 300, 10, INPUT_BG_COLOR)
+    output_canvas.pack(pady=10, fill=tk.BOTH, expand=True)
+
+    output_text = tk.Text(output_canvas, width=60, height=20, bg=INPUT_BG_COLOR, fg=FG_COLOR, bd=0)
+    output_text.place(relx=0, rely=0, relwidth=0.95, relheight=1)
+
+    output_scrollbar = ttk.Scrollbar(output_canvas, command=output_text.yview, style="Custom.Vertical.TScrollbar")
+    output_scrollbar.place(relx=0.95, rely=0, relwidth=0.05, relheight=1)
+    output_text.config(yscrollcommand=output_scrollbar.set)
+
+    return input_textbox, output_text
+
+# 本地界面
+def create_local_page(parent):
+    frame = tk.Frame(parent, bg=BG_COLOR)
+
+    def get_model_response():
+        input_text = input_textbox.get("1.0", tk.END).strip()
+        if not input_text:
+            error_message = "请输入有效的问题。"
+            output_text.delete(1.0, tk.END)
+            output_text.insert(tk.END, error_message)
+            return
+        output_text.delete(1.0, tk.END)
+        output_text.insert(tk.END, "正在获取响应，请稍候...")
+        frame.update()
+        try:
+            # 构建命令
+            command = ['ollama', 'run', 'deepseek-r1:8b']
+            # 使用 Popen 执行命令，并通过管道传递输入，指定编码为 utf - 8
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE,
+                                       text=True, encoding='utf-8')
+            # 向标准输入写入用户输入
+            stdout, stderr = process.communicate(input=input_text)
+            # 检查返回码
+            if process.returncode != 0:
+                error_message = f"命令执行失败，返回码: {process.returncode}\n错误信息: {stderr}"
+                output_text.delete(1.0, tk.END)
+                output_text.insert(tk.END, error_message)
+            else:
+                output_text.delete(1.0, tk.END)
+                output_text.insert(tk.END, stdout)
+        except Exception as e:
+            error_message = f"发生未知错误: {e}"
+            output_text.delete(1.0, tk.END)
+            output_text.insert(tk.END, error_message)
+
+    input_textbox, output_text = create_text_widgets(frame, get_model_response)
+
+    return frame
+
+# 网络界面
+def create_internet_page(parent):
+    frame = tk.Frame(parent, bg=BG_COLOR)
+    base_url = "http://localhost:11434"
+    api_endpoint = "/api/generate"
+    full_url = base_url + api_endpoint
+    model_name = "deepseek-r1:8b"
+
+    def generate_response(prompt):
+        data = {
+            "model": model_name,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.7,
+                "max_tokens": 2000
+            }
+        }
+
+        try:
+            print("\n思考中...")
+            # 记录开始时间
+            start_time = datetime.now()
+            response = requests.post(full_url, json=data)
+            # 记录结束时间
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+
+            if response.status_code == 200:
+                result = json.loads(response.text)
+                print(f"\n响应时间：{duration:.2f} 秒\n")
+                return result['response']
+            else:
+                print(f"请求失败，状态码：{response.status_code}")
+                print("响应内容：", response.text)
+                print(f"\n响应时间：{duration:.2f} 秒\n")
+                return None
+        except requests.RequestException as e:
+            print("网络请求发生错误：", str(e))
+            return None
+        except json.JSONDecodeError as e:
+            print("解析响应内容时发生错误：", str(e))
+            return None
+        except KeyError as e:
+            print("响应内容中缺少必要的键：", str(e))
+            return None
+        except Exception as e:
+            print("发生未知错误：", str(e))
+            return None
+
+    def send_prompt():
+        prompt = input_textbox.get("1.0", tk.END).strip()
+        if prompt.lower() == "exit":
+            root.destroy()
+        else:
+            output_text.insert(tk.END, f"\n你输入的问题：{prompt}\n")
+            output_text.insert(tk.END, "思考中...\n")
+            output_text.update()
+            response = generate_response(prompt)
+            if response is not None:
+                output_text.insert(tk.END, f"\n模型回答：\n{response}\n")
+            input_textbox.delete("1.0", tk.END)
+
+    input_textbox, output_text = create_text_widgets(frame, send_prompt)
+
+    # 显示说明信息
+    output_text.insert(tk.END, "DeepSeek-R1-8B 问答框\n")
+    output_text.insert(tk.END, "输入你的问题，点击 '发送' 按钮。输入 'exit' 退出程序。\n")
+
+    return frame
+
+# 切换界面函数
+def show_frame(frame):
+    # 隐藏所有界面
+    for f in frames:
+        f.pack_forget()
+    # 显示目标界面
+    frame.pack(fill=tk.BOTH, expand=True)
+
+# 创建主窗口
+root = tk.Tk()
+root.title("界面切换示例")
+root.configure(bg=BG_COLOR)
+# 设置初始窗口大小
+root.geometry("800x600")
+
+# 全屏切换函数
+def toggle_fullscreen():
+    state = root.attributes('-fullscreen')
+    root.attributes('-fullscreen', not state)
+    if state:
+        fullscreen_button.config(text="全屏")
+    else:
+        fullscreen_button.config(text="半屏")
+
+# 创建样式
+style = ttk.Style()
+style.theme_use('default')  # 使用默认主题
+
+# 配置滚动条样式
+style.configure("Custom.Vertical.TScrollbar", background=SCROLLBAR_BG_COLOR, troughcolor=SCROLLBAR_BG_COLOR, activebackground=SCROLLBAR_SLIDER_COLOR, gripcount=0)
+style.map("Custom.Vertical.TScrollbar", background=[('active', SCROLLBAR_SLIDER_COLOR)])
+
+# 创建按钮框架
+button_frame = tk.Frame(root, bg=BG_COLOR)
+button_frame.pack(side=tk.TOP, fill=tk.X)
+
+# 创建全屏切换按钮
+style = ttk.Style()
+style.theme_use('default')
+style.configure('TButton', background=BUTTON_BG_COLOR, foreground=FG_COLOR, font=("Arial", 10))
+style.map('TButton', background=[('active', BUTTON_HOVER_BG_COLOR)])
+fullscreen_button_canvas = create_rounded_canvas(button_frame, 100, 30, 10, BUTTON_BG_COLOR)
+fullscreen_button_canvas.pack(side=tk.RIGHT, padx=5, pady=5)
+fullscreen_button = ttk.Button(fullscreen_button_canvas, text="全屏", command=toggle_fullscreen, style='TButton')
+fullscreen_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+# 创建本地和网络界面
+local_frame = create_local_page(root)
+internet_frame = create_internet_page(root)
+
+# 存储所有界面的列表
+frames = [local_frame, internet_frame]
+
+# 创建切换按钮
+style = ttk.Style()
+style.theme_use('default')
+style.configure('TButton', background=BUTTON_BG_COLOR, foreground=FG_COLOR, font=("Arial", 10))
+style.map('TButton', background=[('active', BUTTON_HOVER_BG_COLOR)])
+
+# 本地模式按钮圆角处理
+local_button_canvas = create_rounded_canvas(button_frame, 100, 30, 10, BUTTON_BG_COLOR)
+local_button_canvas.pack(side=tk.LEFT, padx=5, pady=5)
+local_button = ttk.Button(local_button_canvas, text="本地模式", command=lambda: show_frame(local_frame), style='TButton')
+local_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+# 网络模式按钮圆角处理
+internet_button_canvas = create_rounded_canvas(button_frame, 100, 30, 10, BUTTON_BG_COLOR)
+internet_button_canvas.pack(side=tk.LEFT, padx=5, pady=5)
+internet_button = ttk.Button(internet_button_canvas, text="网络模式", command=lambda: show_frame(internet_frame), style='TButton')
+internet_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+# 初始显示本地界面
+show_frame(local_frame)
+
+def on_closing():
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_closing)
+
+# 运行主循环
+root.mainloop()
